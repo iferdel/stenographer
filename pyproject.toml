@@ -1,0 +1,27 @@
+[project]
+name = "stenographer"
+version = "0.1.0"
+description = "Dictate a book by voice: record, transcribe, and keep a faithful fair copy."
+readme = "README.md"
+authors = [
+    { name = "iferdel", email = "ignaferdel@gmail.com" }
+]
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "faster-whisper>=1.1",
+    # PyAV 19 removed open(metadata_errors=...), which faster-whisper 1.2.1 still passes.
+    "av<19",
+    # CUDA runtime libraries for CTranslate2 on Linux, so no system CUDA install is needed.
+    "nvidia-cublas-cu12; sys_platform == 'linux'",
+    "nvidia-cudnn-cu12>=9,<10; sys_platform == 'linux'",
+]
+
+[project.scripts]
+steno = "stenographer.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["uv_build>=0.13.5,<0.14.0"]
+build-backend = "uv_build"

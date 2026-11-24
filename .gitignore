@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+# Audio stays out of plain git (use git-annex/LFS or a synced folder later).
+*.flac
+*.wav
+*.mp3
+*.m4a
+*.ogg
+samples/

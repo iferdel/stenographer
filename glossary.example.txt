@@ -1,0 +1,5 @@
+# Copy to glossary.txt and list character names, places and unusual words, one per line.
+# They are added to Whisper's prompt so it spells them right.
+Alekséi Ivánovich
+Polina
+Roulettenburg
