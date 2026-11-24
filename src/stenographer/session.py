@@ -32,11 +32,13 @@ def default_root() -> Path:
 
 
 
-def new_session(root: Path | None = None, source: str | None = None) -> Path:
-    """Create sessions/YYYY-MM-DD_HHMMSS[_source]. `source` names the device (e.g. "iphone"),
-    so sessions from different devices can never collide; a -2, -3… suffix covers the rest."""
+def new_session(root: Path | None = None, source: str | None = None,
+                when: datetime | None = None) -> Path:
+    """Create sessions/YYYY-MM-DD_HHMMSS[_source]. `when` is the recording time (default: now);
+    `source` names the device (e.g. "iphone") so sessions from different devices never collide;
+    a -2, -3… suffix covers the rest."""
     root = root if root is not None else default_root()
-    name = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    name = (when or datetime.now()).strftime("%Y-%m-%d_%H%M%S")
     if source:
         name += "_" + re.sub(r"[^A-Za-z0-9-]+", "-", source).strip("-").lower()
     path, n = root / name, 1
@@ -48,6 +50,8 @@ def new_session(root: Path | None = None, source: str | None = None) -> Path:
             n += 1
             path = root / f"{name}-{n}"
     meta = {"created": datetime.now().isoformat(timespec="seconds")}
+    if when:
+        meta["recorded"] = when.isoformat(timespec="seconds")
     if source:
         meta["source"] = source
     write_meta(path, meta)

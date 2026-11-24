@@ -4,18 +4,18 @@
     steno transcribe [PATH]      transcribe a session folder (default: latest) or import an audio file
     steno wer REF HYP            word error rate of a transcript against a hand-corrected reference
     steno guard RAW CLEAN        check a fair copy against the raw transcript
+    steno watch INBOX            transcribe recordings arriving in a folder (e.g. from the phone)
 """
 
 from __future__ import annotations
 
 import argparse
-import json
-import shutil
-import subprocess
+import os
 import sys
 from pathlib import Path
 
 from . import guard as guard_mod
+from . import pipeline
 from . import session as sess
 from . import wer as wer_mod
 from .engines import ENGINES, get_engine
@@ -29,97 +29,62 @@ def _add_engine_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--language", default="es")
     p.add_argument("--glossary", type=Path, default=Path("glossary.txt"),
                    help="names/unusual words, one per line (default: ./glossary.txt if present)")
-    p.add_argument("--tag", default=None,
-                   help="write raw.<tag>.md/json instead of raw.md/json (for engine comparisons)")
+    p.add_argument("--root", type=Path, default=None,
+                   help="folder holding session folders (default: $STENO_ROOT or ./sessions)")
+    p.add_argument("--notes", type=Path, default=_env_path("STENO_NOTES"),
+                   help="also write <session>.md here, e.g. a folder in your Obsidian vault "
+                        "(default: $STENO_NOTES)")
 
 
-def _import_audio(audio: Path) -> Path:
-    session = sess.new_session()
-    subprocess.run(
-        [shutil.which("ffmpeg") or "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-         "-i", str(audio), "-ac", "1", "-ar", "16000", str(session / sess.AUDIO_NAME)],
-        check=True,
-    )
-    sess.write_meta(session, {"imported_from": str(audio.resolve())})
-    return session
+def _env_path(name: str) -> Path | None:
+    value = os.environ.get(name)
+    return Path(value).expanduser() if value else None
 
 
-def _transcribe_session(session: Path, args: argparse.Namespace) -> None:
-    audio = session / sess.AUDIO_NAME
-    if not audio.exists():
-        raise SystemExit(f"No {sess.AUDIO_NAME} in {session}")
-    glossary = sess.load_glossary(args.glossary)
-    engine = get_engine(args.engine, model=args.model, device=args.device,
-                        compute_type=args.compute_type)
-    print(f"Transcribing {audio} with {engine.name} …", file=sys.stderr)
-    transcript = engine.transcribe(audio, args.language, glossary)
-
-    stem = f"raw.{args.tag}" if args.tag else "raw"
-    (session / f"{stem}.json").write_text(
-        json.dumps(transcript.to_dict(), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    (session / f"{stem}.md").write_text(transcript.text + "\n", encoding="utf-8")
-
-    vram = _vram_mb()
-    sess.write_meta(session, {stem: {
-        "engine": transcript.engine,
-        "model": transcript.model,
-        "settings": transcript.settings,
-        "language": transcript.language,
-        "audio_seconds": round(transcript.duration, 2),
-        "transcribe_seconds": transcript.elapsed,
-        "real_time_factor": round(transcript.real_time_factor, 3),
-        "glossary_terms": len(glossary),
-        "glossary_hash": sess.glossary_hash(glossary),
-        "vram_mb": vram,
-    }})
-    words = sum(len(s.text.split()) for s in transcript.segments)
-    print(
-        f"\n{words} words, {transcript.duration:.1f} s of audio in {transcript.elapsed:.1f} s "
-        f"(RTF {transcript.real_time_factor:.2f}, {transcript.settings.get('device')}"
-        f" {transcript.settings.get('compute_type')}"
-        + (f", VRAM {vram} MB" if vram else "") + ")",
-        file=sys.stderr,
-    )
-    print(f"→ {session / (stem + '.md')}", file=sys.stderr)
+def _engine(args: argparse.Namespace):
+    return get_engine(args.engine, model=args.model, device=args.device,
+                      compute_type=args.compute_type)
 
 
-def _vram_mb() -> int | None:
-    """Best effort: VRAM held by this process after transcription, read via nvidia-smi."""
-    if not shutil.which("nvidia-smi"):
-        return None
-    import os
-
-    try:
-        out = subprocess.run(
-            ["nvidia-smi", "--query-compute-apps=pid,used_memory", "--format=csv,noheader,nounits"],
-            capture_output=True, text=True, timeout=5,
-        ).stdout
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-    for line in out.splitlines():
-        pid, _, mem = line.partition(",")
-        if pid.strip() == str(os.getpid()):
-            return int(mem.strip())
-    return None
+def _transcribe(session: Path, args: argparse.Namespace, tag: str | None = None) -> None:
+    transcript = pipeline.transcribe_session(session, _engine(args), args.language,
+                                             sess.load_glossary(args.glossary), tag=tag)
+    if args.notes and not tag:
+        pipeline.write_note(session, transcript, args.notes)
 
 
 def cmd_record(args: argparse.Namespace) -> None:
     from .record import record
 
-    session = sess.new_session()
+    session = sess.new_session(args.root)
     seconds = record(session / sess.AUDIO_NAME, device=args.input, seconds=args.seconds)
     sess.write_meta(session, {"recorded_seconds": seconds})
     print(f"Saved {session / sess.AUDIO_NAME} ({seconds:.0f} s)", file=sys.stderr)
     if not args.no_transcribe:
-        _transcribe_session(session, args)
+        _transcribe(session, args)
 
 
 def cmd_transcribe(args: argparse.Namespace) -> None:
-    path = args.path or sess.latest_session()
+    path = args.path or sess.latest_session(args.root)
     if path is None:
         raise SystemExit("No sessions yet. Run `steno record` or pass an audio file.")
-    session = path if path.is_dir() else _import_audio(path)
-    _transcribe_session(session, args)
+    session = path if path.is_dir() else pipeline.import_audio(path, args.root)
+    _transcribe(session, args, tag=args.tag)
+
+
+def cmd_watch(args: argparse.Namespace) -> None:
+    from .watch import Watcher
+
+    watcher = Watcher(
+        inbox=args.inbox, root=args.root or sess.default_root(),
+        engine_factory=lambda: _engine(args), language=args.language,
+        glossary_loader=lambda: sess.load_glossary(args.glossary),  # re-read: edits apply live
+        notes_dir=args.notes, default_source=args.source, settle=args.settle,
+    )
+    try:
+        watcher.run(interval=args.interval, once=args.once)
+    except KeyboardInterrupt:
+        pass
 
 
 def cmd_wer(args: argparse.Namespace) -> None:
@@ -151,7 +116,20 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("transcribe", help="transcribe a session folder or an audio file")
     p.add_argument("path", nargs="?", type=Path, help="session folder or audio file (default: latest session)")
     _add_engine_args(p)
+    p.add_argument("--tag", default=None,
+                   help="write raw.<tag>.md/json instead of raw.md/json (for engine comparisons)")
     p.set_defaults(func=cmd_transcribe)
+
+    p = sub.add_parser("watch", help="transcribe recordings that arrive in an inbox folder")
+    p.add_argument("inbox", type=Path, help="folder the phone's recordings sync into")
+    _add_engine_args(p)
+    p.add_argument("--source", default="phone",
+                   help="device name when the file name does not carry one (default: phone)")
+    p.add_argument("--interval", type=float, default=3.0, help="seconds between scans")
+    p.add_argument("--settle", type=float, default=5.0,
+                   help="seconds a file must stop changing before it is imported")
+    p.add_argument("--once", action="store_true", help="process what is there, then exit")
+    p.set_defaults(func=cmd_watch)
 
     p = sub.add_parser("wer", help="word error rate against a hand-corrected reference")
     p.add_argument("reference", type=Path)
