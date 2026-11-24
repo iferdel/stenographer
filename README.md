@@ -74,6 +74,24 @@ iPhone: record → <vault>/Dictado/inbox/2026-11-23_224500_iphone.m4a
 4. Save File to On My iPhone › Obsidian › <vault> › Dictado › inbox, "Ask Where to Save" off.
 5. Open URL `obsidian://open?vault=<vault>` so Obsidian syncs the file right away.
 
+## On the M1 Mac (untested)
+
+The same code runs on macOS: recording uses ffmpeg (AVFoundation) instead of PipeWire, and
+transcription falls back to CPU `int8`, much slower than the Linux GPU. The MacBook Air has no
+fan, so long sessions slow down as it warms up.
+
+1. `brew install ffmpeg uv`
+2. `git clone git@github.com:iferdel/stenographer.git && cd stenographer && uv sync`
+   (the NVIDIA libraries are Linux-only and are skipped).
+3. `uv run steno record`. The first time, macOS asks for microphone access for your terminal
+   app; allow it in System Settings › Privacy & Security › Microphone, then run it again.
+4. Wrong microphone? List devices with `ffmpeg -f avfoundation -list_devices true -i ""` and
+   pass the audio device number: `uv run steno record --input 1`.
+5. Too slow? Record with `--no-transcribe` and transcribe later, on the Mac or on the Linux
+   machine (`uv run steno transcribe path/to/session`), or try `--model small` for drafts.
+
+A faster MLX engine for Apple Silicon (`mlx-whisper`) is a planned addition.
+
 ## The diff guard
 
 `steno guard` aligns the fair copy with the raw transcript word by word. Punctuation, case,
