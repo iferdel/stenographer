@@ -2,7 +2,7 @@
 
 GPU: CUDA int8_float16 if CTranslate2 sees a device (GTX 1650: ~1.5 GB VRAM for turbo, per
 the research; to be confirmed). Otherwise CPU int8 (also the path on an M1 Mac; switch to an
-MLX engine there later for speed).
+MLX engine there later for speed). `--device mps` tries CTranslate2's experimental Metal backend.
 """
 
 from __future__ import annotations
@@ -59,6 +59,11 @@ def _preload_cuda_wheels() -> None:
 def _pick_device(device: str) -> tuple[str, str]:
     if device == "cpu":
         return "cpu", "int8"
+    if device == "mps":
+        # CTranslate2's Metal backend (experimental). Opt-in only: on the M1 Air it was no
+        # faster than CPU int8 (5 min of audio: 56 s vs 48 s) and once crashed mid-file with
+        # `IndexError: vector`. CTranslate2 runs int8 as float16 on MPS anyway.
+        return "mps", "float16"
     import ctranslate2
 
     if ctranslate2.get_cuda_device_count() > 0:

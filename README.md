@@ -24,7 +24,7 @@ uv run steno guard sessions/<id>/raw.md clean.md     # check a fair copy against
 uv run steno watch ~/Vault/Dictado/inbox --notes ~/Vault/Dictado   # transcribe phone recordings
 ```
 
-Useful flags: `--device cpu|cuda`, `--model <whisper model>`, `--tag <name>` (writes
+Useful flags: `--device cpu|cuda|mps`, `--model <whisper model>`, `--tag <name>` (writes
 `raw.<name>.md` so several engines/models can sit side by side in one session),
 `--glossary file` (default `./glossary.txt`: character names and unusual words, one per line),
 `--root dir` or `$STENO_ROOT` (where session folders go, default `./sessions`),
@@ -87,7 +87,10 @@ fan, so long sessions slow down as it warms up.
    app; allow it in System Settings › Privacy & Security › Microphone, then run it again.
 4. Wrong microphone? List devices with `ffmpeg -f avfoundation -list_devices true -i ""` and
    pass the audio device number: `uv run steno record --input 1`.
-5. Too slow? Record with `--no-transcribe` and transcribe later, on the Mac or on the Linux
+5. `--device mps` uses the Apple GPU through CTranslate2's experimental Metal backend. On the
+   Air it was no faster than CPU `int8` (5 min of audio: 56 s vs 48 s) and once crashed with
+   `IndexError: vector`, so `auto` keeps using the CPU.
+6. Too slow? Record with `--no-transcribe` and transcribe later, on the Mac or on the Linux
    machine (`uv run steno transcribe path/to/session`), or try `--model small` for drafts.
 
 A faster MLX engine for Apple Silicon (`mlx-whisper`) is a planned addition.

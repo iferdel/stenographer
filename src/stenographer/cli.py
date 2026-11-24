@@ -24,7 +24,8 @@ from .engines import ENGINES, get_engine
 def _add_engine_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--engine", default="whisper", choices=ENGINES)
     p.add_argument("--model", default=None, help="engine model name (whisper: large-v3-turbo)")
-    p.add_argument("--device", default="auto", choices=["auto", "cuda", "cpu"])
+    p.add_argument("--device", default="auto", choices=["auto", "cuda", "cpu", "mps"],
+                   help="mps: Apple GPU, experimental; auto never picks it")
     p.add_argument("--compute-type", default=None, help="override, e.g. int8, float16")
     p.add_argument("--language", default="es")
     p.add_argument("--glossary", type=Path, default=Path("glossary.txt"),

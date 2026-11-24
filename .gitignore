@@ -9,3 +9,6 @@ __pycache__/
 *.m4a
 *.ogg
 samples/
+
+# Dictation sessions (transcripts and metadata) are personal, not code.
+sessions/
